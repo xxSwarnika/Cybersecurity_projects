@@ -1,0 +1,131 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Sealbox File Encryption</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="styles.css">
+
+  <div class="wrap">
+    <header class="page-header">
+      <div class="eyebrow">Cybersecurity project · AES-256-GCM in your browser</div>
+      <h1>Sealbox</h1>
+      <p class="lede">Lock any file with a password, then unlock it again. Encryption happens on your own device with the browser's Web Crypto API. Your files and password never leave this page.</p>
+    </header>
+
+    <main class="main-grid">
+      <!-- The tool -->
+      <section class="panel tool" aria-labelledby="tool-heading">
+        <h2 id="tool-heading" class="visually-hidden">Encrypt or decrypt a file</h2>
+
+        <div class="mode-switch" role="group" aria-label="Mode">
+          <button id="mode-encrypt" type="button" class="mode" aria-pressed="true">Encrypt</button>
+          <button id="mode-decrypt" type="button" class="mode" aria-pressed="false">Decrypt</button>
+        </div>
+
+        <!-- Step 1: file -->
+        <div class="step">
+          <span class="step-label">1 · File</span>
+          <input id="file-input" class="visually-hidden" type="file">
+          <label id="dropzone" class="dropzone" for="file-input">
+            <span class="dropzone-title">Drop a file here, or <u>choose one</u></span>
+            <span class="dropzone-hint">Any file type, up to 512 MB. Drop a <code>.sbox</code> or Sealbox <code>.zip</code> to decrypt.</span>
+          </label>
+
+          <div id="file-card" class="file-card" hidden>
+            <div class="file-info">
+              <span id="file-name" class="file-name"></span>
+              <span id="file-meta" class="file-meta"></span>
+            </div>
+            <span id="file-badge" class="badge"></span>
+            <button id="clear-file" type="button" class="small">Remove</button>
+          </div>
+        </div>
+
+        <!-- Step 2: password -->
+        <div class="step">
+          <label id="password-label" class="step-label" for="password">2 · Choose a password</label>
+          <div class="field">
+            <input id="password" type="password" autocomplete="new-password" spellcheck="false" placeholder="At least 12 characters">
+            <button id="toggle-password" type="button" aria-controls="password">Show</button>
+            <button id="generate-password" type="button">Generate</button>
+          </div>
+
+          <div id="strength" class="strength">
+            <div class="strength-track" aria-hidden="true"><span id="strength-fill"></span></div>
+            <span id="strength-text" class="hint"></span>
+          </div>
+
+          <div id="confirm-field" class="stack">
+            <label for="password-confirm" class="sub-label">Repeat password</label>
+            <input id="password-confirm" type="password" autocomplete="new-password" spellcheck="false">
+            <span id="confirm-text" class="hint"></span>
+          </div>
+
+          <p id="lost-warning" class="callout">There is no way to recover a forgotten password. Save it in a password manager before you encrypt.</p>
+        </div>
+
+        <!-- Step 3: run -->
+        <div class="step">
+          <button id="run" type="button" class="primary run">Encrypt file</button>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </div>
+
+        <!-- Result -->
+        <section id="result" class="result" aria-labelledby="result-title" hidden>
+          <div class="result-head">
+            <div>
+              <h3 id="result-title"></h3>
+              <span id="result-name" class="file-name"></span>
+            </div>
+            <button id="save" type="button" class="primary">Save file</button>
+          </div>
+          <dl id="result-details" class="details"></dl>
+          <p id="save-note" class="hint"></p>
+        </section>
+      </section>
+
+      <!-- Explanation -->
+      <aside class="side">
+        <section class="panel" aria-labelledby="format-heading">
+          <h2 id="format-heading">Inside a .sbox file</h2>
+          <p class="hint">Every encrypted file starts with a 37-byte header, followed by the ciphertext and a 16-byte tag. Values fill in after you encrypt or decrypt.</p>
+          <div class="table-scroll">
+            <table class="format">
+              <thead>
+                <tr><th scope="col">Offset</th><th scope="col">Bytes</th><th scope="col">Field</th><th scope="col">Value</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>0</td><td>4</td><td>Magic</td><td><code>SBOX</code></td></tr>
+                <tr><td>4</td><td>1</td><td>Version</td><td><code>1</code></td></tr>
+                <tr><td>5</td><td>4</td><td>PBKDF2 rounds</td><td><code id="fmt-iterations">600,000</code></td></tr>
+                <tr><td>9</td><td>16</td><td>Salt</td><td><code id="fmt-salt">random</code></td></tr>
+                <tr><td>25</td><td>12</td><td>IV</td><td><code id="fmt-iv">random</code></td></tr>
+                <tr><td>37</td><td id="fmt-cipher-size">n</td><td>Ciphertext</td><td><code>name + type + file</code></td></tr>
+                <tr><td id="fmt-tag-offset">end − 16</td><td>16</td><td>Auth tag</td><td><code id="fmt-tag">checks everything</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="how-heading">
+          <h2 id="how-heading">How encryption works</h2>
+          <ol class="how">
+            <li><strong>Stretch the password.</strong> PBKDF2 runs SHA-256 600,000 times with a random salt, so each guess costs an attacker real time.</li>
+            <li><strong>Pick a fresh IV.</strong> 12 random bytes make every encryption unique, even for the same file and password.</li>
+            <li><strong>Encrypt and seal.</strong> AES-256-GCM encrypts the file together with its name and type, and computes a tag over the header and ciphertext.</li>
+            <li><strong>Verify on the way out.</strong> Decryption recomputes the tag. A wrong password or one changed bit, and nothing is released.</li>
+          </ol>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="page-footer">
+      Built with the Web Crypto API (<code>crypto.subtle</code>): PBKDF2-HMAC-SHA256 key derivation and AES-256-GCM authenticated encryption. No libraries, no server, no tracking.
+    </footer>
+  </div>
+
+  <!-- Order matters: app.js uses the globals defined by the two files above it. -->
+  <script src="js/crypto.js"></script>
+  <script src="js/zip.js"></script>
+  <script src="js/app.js"></script>
+
+</body></html>
