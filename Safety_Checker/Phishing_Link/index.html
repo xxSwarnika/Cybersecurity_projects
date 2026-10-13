@@ -1,0 +1,251 @@
+<title>Phishing Link Inspector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column — input, the URL dissected into parts, verdict gauge, then ranked findings. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --fg: #16202e;
+  --muted: #5b6878;
+  --line: #d9dfe7;
+  --accent: #1f4fd1;
+  --accent-soft: #e4ebfc;
+  --safe: #17784a;   --safe-soft: #e1f3e9;
+  --warn: #a35d00;   --warn-soft: #fbefd9;
+  --danger: #c0262d; --danger-soft: #fbe3e3;
+  --seg-scheme: #6b7686;
+  --seg-sub: #8a5bb8;
+  --seg-domain: #16202e;
+  --seg-rest: #8b96a5;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #171e28; --fg: #e6ebf2; --muted: #95a1b2; --line: #2a3442;
+    --accent: #7ea0ff; --accent-soft: #1e2a47;
+    --safe: #5fcf95; --safe-soft: #14301f; --warn: #f0b35a; --warn-soft: #33260f;
+    --danger: #ff7a7f; --danger-soft: #3a1719;
+    --seg-scheme: #8995a6; --seg-sub: #c39af0; --seg-domain: #ffffff; --seg-rest: #6f7b8c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --fg: #e6ebf2; --muted: #95a1b2; --line: #2a3442;
+  --accent: #7ea0ff; --accent-soft: #1e2a47;
+  --safe: #5fcf95; --safe-soft: #14301f; --warn: #f0b35a; --warn-soft: #33260f;
+  --danger: #ff7a7f; --danger-soft: #3a1719;
+  --seg-scheme: #8995a6; --seg-sub: #c39af0; --seg-domain: #ffffff; --seg-rest: #6f7b8c;
+  color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--font-body); }
+.wrap { max-width: 760px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 64px; display: grid; gap: 28px; }
+
+header h1 { font: 800 clamp(1.9rem, 5vw, 2.6rem)/1.05 var(--font-display); letter-spacing: -0.02em; margin: 0 0 8px; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 60ch; }
+
+form { display: grid; gap: 10px; }
+label.eyebrow, .eyebrow { font: 600 0.72rem var(--font-body); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+#url {
+  flex: 1 1 280px; min-width: 0; font: 0.95rem var(--font-mono); color: var(--fg);
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: 8px; padding: 12px 14px;
+}
+#url:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+button {
+  font: 600 0.95rem var(--font-body); border-radius: 8px; padding: 12px 20px; cursor: pointer;
+  background: var(--accent); color: var(--surface); border: none;
+}
+button:focus-visible, .chip:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip {
+  font: 0.78rem var(--font-mono); color: var(--muted); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; cursor: pointer;
+}
+.chip:hover { color: var(--fg); border-color: var(--muted); }
+.error { color: var(--danger); margin: 0; }
+
+/* The dissected URL */
+.anatomy { display: grid; gap: 10px; }
+.url-line {
+  font: 1.05rem/1.7 var(--font-mono); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px 16px; overflow-wrap: anywhere;
+}
+.s-scheme { color: var(--seg-scheme); }
+.s-sub { color: var(--seg-sub); }
+.s-domain { color: var(--seg-domain); font-weight: 600; background: var(--accent-soft); border-radius: 4px; padding: 1px 4px; }
+.s-rest { color: var(--seg-rest); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; background: var(--c); }
+.real-dest { margin: 0; font-size: 0.95rem; }
+.real-dest code { font-family: var(--font-mono); font-weight: 600; }
+
+/* Verdict */
+.verdict {
+  display: grid; gap: 14px; padding: 20px; border-radius: 10px;
+  background: var(--tone-soft); border: 1px solid var(--tone);
+}
+.verdict[data-v="safe"] { --tone: var(--safe); --tone-soft: var(--safe-soft); }
+.verdict[data-v="warning"] { --tone: var(--warn); --tone-soft: var(--warn-soft); }
+.verdict[data-v="danger"] { --tone: var(--danger); --tone-soft: var(--danger-soft); }
+.verdict-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.verdict h2 { font: 800 1.6rem/1.1 var(--font-display); margin: 0; color: var(--tone); }
+.score { font: 600 1rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--tone); }
+.score b { font-size: 1.8rem; }
+.gauge { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--safe) 0 15%, var(--warn) 15% 45%, var(--danger) 45% 100%); opacity: 0.9; }
+.gauge i { position: absolute; top: -5px; width: 4px; height: 20px; border-radius: 2px; background: var(--fg); transform: translateX(-50%); transition: left 0.4s ease; }
+.ticks { display: flex; justify-content: space-between; font: 0.72rem var(--font-mono); color: var(--muted); }
+.ticks span:nth-child(2) { margin-left: 3%; }
+
+/* Findings */
+.findings { display: grid; gap: 10px; }
+.findings h3 { margin: 0; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+li.f {
+  display: grid; grid-template-columns: 4px 1fr auto; gap: 14px; align-items: start;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 12px 0; overflow: hidden;
+}
+li.f::before { content: ""; align-self: stretch; margin: -12px 0; background: var(--sev); }
+li.f[data-s="high"] { --sev: var(--danger); }
+li.f[data-s="medium"] { --sev: var(--warn); }
+li.f[data-s="low"] { --sev: var(--muted); }
+.f-body { min-width: 0; }
+.f-title { font-weight: 600; overflow-wrap: anywhere; }
+.f-detail { color: var(--muted); font-size: 0.93rem; overflow-wrap: anywhere; }
+.pts { font: 600 0.85rem var(--font-mono); color: var(--sev); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.none { color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 14px; margin: 0; }
+
+footer { font-size: 0.88rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+footer p { margin: 0 0 6px; max-width: 65ch; }
+
+@media (prefers-reduced-motion: reduce) { .gauge i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Phishing Link Inspector</h1>
+    <p>Paste a link from an email or text message. It's checked for common phishing tricks right here in your browser. The link is never opened or sent anywhere.</p>
+  </header>
+
+  <form id="form" novalidate>
+    <label class="eyebrow" for="url">Link to check</label>
+    <div class="row">
+      <input id="url" type="text" autocomplete="off" spellcheck="false" placeholder="https://example.com/login">
+      <button type="submit">Check link</button>
+    </div>
+    <div class="chips" aria-label="Example links">
+      <span class="eyebrow">Try:</span>
+    </div>
+    <p class="error" id="error" hidden></p>
+  </form>
+
+  <section id="result" aria-live="polite">
+    <div class="anatomy">
+      <span class="eyebrow" id="anatomy-label">Where the link really goes</span>
+      <div class="url-line" id="url-line"></div>
+      <div class="legend">
+        <span style="--c: var(--seg-scheme)">Protocol</span>
+        <span style="--c: var(--seg-sub)">Subdomain (anyone can pick this)</span>
+        <span style="--c: var(--accent)">Real domain (who owns the site)</span>
+        <span style="--c: var(--seg-rest)">Path</span>
+      </div>
+      <p class="real-dest" id="real-dest"></p>
+    </div>
+  </section>
+
+  <section class="verdict" id="verdict">
+    <div class="verdict-top">
+      <h2 id="verdict-label"></h2>
+      <span class="score"><b id="score"></b> / 100 risk</span>
+    </div>
+    <div>
+      <div class="gauge"><i id="needle"></i></div>
+      <div class="ticks"><span>0</span><span>15</span><span>45</span><span>100</span></div>
+    </div>
+  </section>
+
+  <section class="findings">
+    <h3 class="eyebrow" id="findings-label">Warning signs</h3>
+    <ul id="list"></ul>
+  </section>
+
+  <footer>
+    <p>This tool only reads the link itself. A clean result doesn't prove a site is safe: a phishing page on a fresh, plain-looking domain can pass every check.</p>
+    <p>If a message pressures you to log in, pay or "verify" something, go to the company's site by typing the address yourself instead of clicking.</p>
+  </footer>
+</div>
+
+<script src="detector.js"></script>
+<script>
+(function () {
+  const EXAMPLES = [
+    "http://secure-paypal.com.verify-account.xyz/login",
+    "https://dnb-bankid-verify.web.app/",
+    "https://rnicrosoft.com/login",
+    "https://accounts.google.com@evil.tk/",
+    "https://www.dnb.no/",
+  ];
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const chips = document.querySelector(".chips");
+  EXAMPLES.forEach((u) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = u.replace(/^https?:\/\//, "").slice(0, 34);
+    b.title = u;
+    b.addEventListener("click", () => { $("url").value = u; run(true); });
+    chips.appendChild(b);
+  });
+
+  function run(isExample) {
+    const value = $("url").value;
+    let r;
+    try {
+      r = PhishingDetector.analyze(value);
+      $("error").hidden = true;
+    } catch (e) {
+      $("error").textContent = e.message;
+      $("error").hidden = false;
+      return;
+    }
+
+    $("anatomy-label").textContent = isExample === "initial" ? "Example: where the link really goes" : "Where the link really goes";
+
+    if (r.segments) {
+      const s = r.segments;
+      $("url-line").innerHTML =
+        `<span class="s-scheme">${esc(s.scheme)}://</span>` +
+        (s.subdomain ? `<span class="s-sub">${esc(s.subdomain)}.</span>` : "") +
+        `<span class="s-domain">${esc(s.registered)}</span>` +
+        (s.port ? `<span class="s-rest">:${esc(s.port)}</span>` : "") +
+        `<span class="s-rest">${esc(s.rest === "/" ? "/" : s.rest)}</span>`;
+      $("real-dest").innerHTML = `This link takes you to a site owned by <code>${esc(s.registered)}</code>. Read a domain from the right: the last part before the first <code>/</code> is what counts.`;
+    } else {
+      $("url-line").textContent = value.trim();
+      $("real-dest").textContent = "This isn't a normal web address, so it has no domain to inspect.";
+    }
+
+    $("verdict").dataset.v = r.verdict;
+    $("verdict-label").textContent = r.label;
+    $("score").textContent = r.score;
+    $("needle").style.left = Math.max(1, Math.min(99, r.score)) + "%";
+
+    $("findings-label").textContent = r.findings.length ? `Warning signs (${r.findings.length})` : "Warning signs";
+    $("list").innerHTML = r.findings.length
+      ? r.findings.map((f) =>
+          `<li class="f" data-s="${f.severity}"><div class="f-body"><div class="f-title">${esc(f.title)}</div><div class="f-detail">${esc(f.detail)}</div></div><span class="pts">+${f.points}</span></li>`
+        ).join("")
+      : `<p class="none">No known phishing patterns found in this link.</p>`;
+  }
+
+  $("form").addEventListener("submit", (e) => { e.preventDefault(); run(false); });
+
+  // Open with an example so the page shows what it does.
+  $("url").value = EXAMPLES[0];
+  run("initial");
+})();
+</script>
